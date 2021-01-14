@@ -11,6 +11,7 @@ public class GiftDataFormatterDefine
     public const string kMemberAliasSeperator = "::";
     public const string kArrayOrListStart = "[";
     public const string kArrayOrListItemSeperator = ",,";
+    public const string kArrayOrListItemTypeSeperator = "##";
     public const string kArrayOrListEnd = "]";
 
 }
@@ -65,15 +66,23 @@ public class GiftDataFormatter
         public static SupportTypeItem String = new SupportTypeItem(typeof(string), 4);
         public static SupportTypeItem Long = new SupportTypeItem(typeof(long), 5);
         public static SupportTypeItem DateTime = new SupportTypeItem(typeof(DateTime), 6);
-        public static SupportTypeItem OriginList = new SupportTypeItem(typeof(IList), 7);
+        public static SupportTypeItem ArrayList = new SupportTypeItem(typeof(ArrayList), 7);
+        public static SupportTypeItem Array = new SupportTypeItem(typeof(Array), 8);
+        public static SupportTypeItem IList = new SupportTypeItem(typeof(IList), 9);
+        public static SupportTypeItem IGenericList = new SupportTypeItem(typeof(List<>), 10);
 
         private static List<SupportTypeItem> m_SupportTypes;
         static SupportTypes()
         {
             m_SupportTypes = new List<SupportTypeItem>()
             {
-                Int, Bool, Float, Double, String, Long, DateTime, OriginList,
+                Int, Bool, Float, Double, String, Long, DateTime, ArrayList, Array, IList,IGenericList
             };
+        }
+
+        public static T Cast<T>(object o)
+        {
+            return (T)o;
         }
 
         public static Type ConvertIntValueToType(int value)
@@ -101,6 +110,7 @@ public class GiftDataFormatter
                     break;
                 }
             }
+
             return value;
         }
     }
@@ -234,8 +244,10 @@ public class GiftDataFormatter
             double timestamp = ConvertDateTimeToTimestamp((DateTime)originValue);
             writer.Append(Convert.ToString(timestamp, number_format));
         }
-        else if (SupportTypes.OriginList.type.IsAssignableFrom(valueType))
+        else if (valueType == SupportTypes.ArrayList.type
+                || SupportTypes.IList.type.IsAssignableFrom(valueType))
         {
+            // https://docs.microsoft.com/en-us/dotnet/api/system.type.isassignablefrom
             writer.Append(GiftDataFormatterDefine.kArrayOrListStart);
             var collection = (ICollection)originValue;
             bool isFirstItem = true;
@@ -246,8 +258,21 @@ public class GiftDataFormatter
                     writer.Append(GiftDataFormatterDefine.kArrayOrListItemSeperator);
                 }
                 WriteObjectValue(item.GetType(), item, writer);
-                writer.Append(GiftDataFormatterDefine.kMemberAliasSeperator);
-                WriteObjectValue(SupportTypes.Int.type, SupportTypes.ConvertTypeToIntValue(item.GetType()), writer);
+                writer.Append(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
+                Type writeItemType = item.GetType();
+                if (writeItemType == SupportTypes.ArrayList.type)
+                {
+                    writeItemType = SupportTypes.ArrayList.type;
+                }
+                else if (writeItemType.IsArray)
+                {
+                    writeItemType = SupportTypes.Array.type;
+                }
+                else if (SupportTypes.IList.type.IsAssignableFrom(writeItemType))
+                {
+                    writeItemType = SupportTypes.IGenericList.type;
+                }
+                WriteObjectValue(SupportTypes.Int.type, SupportTypes.ConvertTypeToIntValue(writeItemType), writer);
                 isFirstItem = false;
             }
             writer.Append(GiftDataFormatterDefine.kArrayOrListEnd);
@@ -286,23 +311,154 @@ public class GiftDataFormatter
             double timestamp = Convert.ToDouble(valueString, number_format);
             valueObject = ConvertTimestampToDateTime(timestamp);
         }
-        else if (SupportTypes.OriginList.type.IsAssignableFrom(valueType))
+        else if (SupportTypes.IList.type.IsAssignableFrom(valueType))
         {
             valueString = valueString.Substring(1, valueString.Length - 2);
-            var listValueString = valueString.Split(GiftDataFormatterDefine.kArrayOrListItemSeperator);
-            var list = (IList)Activator.CreateInstance(valueType);
-            for (int index = 0; index < listValueString.Length; index++)
+            List<string> listValueString = new List<string>();
+            SplitArrayOrListString(valueString, ref listValueString);
+            IList list = null;
+            if (valueType.IsArray || valueType == SupportTypes.Array.type)
+            {
+                var splits = listValueString[0].Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
+                var arrayItemTypeString = splits[splits.Length - 1];
+                var arrayItemType = SupportTypes.ConvertIntValueToType(Convert.ToInt32(arrayItemTypeString));
+                list = Array.CreateInstance(arrayItemType, listValueString.Count);
+            }
+            else
+            {
+                list = (IList)Activator.CreateInstance(valueType);
+            }
+
+            for (int index = 0; index < listValueString.Count; index++)
             {
                 var listItemString = listValueString[index];
-                var listItemStringArray = listItemString.Split(GiftDataFormatterDefine.kMemberAliasSeperator);
-                var listItemValueString = listItemStringArray[0];
-                var listItemTypeInt = Convert.ToInt32(listItemStringArray[1]);
-                Type listItemType = SupportTypes.ConvertIntValueToType(listItemTypeInt);
-                list.Add(ReadObjectValue(listItemType, listItemValueString));
+                var listItemStringArray = listItemString.Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
+                var listItemTypeIntString = listItemStringArray[listItemStringArray.Length - 1];
+                var listItemTypeInt = Convert.ToInt32(listItemTypeIntString);
+                var listItemValueString = listItemString.Substring(0, listItemString.Length - listItemTypeIntString.Length - GiftDataFormatterDefine.kArrayOrListItemTypeSeperator.Length);
+                var listItemType = FindArrayOrListItemType(valueType, listItemTypeInt, listItemValueString);
+                if (valueType.IsArray || valueType == SupportTypes.Array.type)
+                {
+                    list[index] = ReadObjectValue(listItemType, listItemValueString);
+                }
+                else
+                {
+                    list.Add(ReadObjectValue(listItemType, listItemValueString));
+                }
             }
             valueObject = list;
         }
         return valueObject;
+    }
+
+    private static void SplitArrayOrListString(string s, ref List<string> result)
+    {
+        int arrayOrListDepth = 0;
+        int startIndex = 0;
+
+        if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
+        {
+            arrayOrListDepth++;
+            startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
+        }
+
+        while (arrayOrListDepth > 0)
+        {
+            if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
+            {
+                arrayOrListDepth++;
+                startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
+            }
+            else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListEnd))
+            {
+                arrayOrListDepth--;
+                startIndex += GiftDataFormatterDefine.kArrayOrListEnd.Length;
+            }
+            else
+            {
+                startIndex++;
+            }
+        }
+
+        while (!s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListItemSeperator))
+        {
+            //current 's' is just origin 's' last part.
+            if (startIndex >= s.Length)
+            {
+                break;
+            }
+            startIndex++;
+        }
+
+        if (startIndex > 0)
+        {
+            var splitPart = s.Substring(0, startIndex);
+            var newStringStartIndex = Math.Min(startIndex + GiftDataFormatterDefine.kArrayOrListItemSeperator.Length, s.Length);
+            s = s.Substring(newStringStartIndex);
+            result.Add(splitPart);
+        }
+
+        if (!string.IsNullOrEmpty(s))
+        {
+            SplitArrayOrListString(s, ref result);
+        }
+    }
+
+    private static Type FindArrayOrListItemType(Type listType, int listItemTypeInt, string listItemValueString)
+    {
+        Type listItemType = SupportTypes.ConvertIntValueToType(listItemTypeInt);
+
+        if (listType == SupportTypes.ArrayList.type 
+            || listType == SupportTypes.IGenericList.type 
+            || listType == SupportTypes.Array.type)
+        {
+            if (listItemType == SupportTypes.IGenericList.type)
+            {
+                List<string> listItemListValueString = new List<string>();
+                listItemValueString = listItemValueString.Substring(1, listItemValueString.Length - 2);
+                SplitArrayOrListString(listItemValueString, ref listItemListValueString);
+                var firstListItem = listItemListValueString[0];
+                var splits = firstListItem.Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
+                var typeString = splits[splits.Length - 1];
+                int typeInt = Convert.ToInt32(typeString);
+                var valueString = firstListItem.Substring(0, firstListItem.Length - typeString.Length - GiftDataFormatterDefine.kArrayOrListItemTypeSeperator.Length);
+                Type listItemListItemType = FindArrayOrListItemType(listItemType, typeInt, valueString);
+                listItemType = listItemType.MakeGenericType(listItemListItemType);
+            }
+        }
+        else
+        {
+            // https://www.codeproject.com/Tips/5267157/How-to-Get-a-Collection-Element-Type-Using-Reflect
+            if (listItemType == SupportTypes.IGenericList.type)
+            {
+                var etype = typeof(IEnumerable<>);
+                foreach (var bt in listType.GetInterfaces())
+                {
+                    if (bt.IsGenericType && bt.GetGenericTypeDefinition() == etype)
+                    {
+                        listItemType = bt.GetGenericArguments()[0];
+                        break;
+                    }
+                }
+            }
+
+            if (listItemType == SupportTypes.Array.type)
+            {
+                foreach (var prop in listType.GetProperties())
+                {
+                    if ("Item" == prop.Name && typeof(object) != prop.PropertyType)
+                    {
+                        var ipa = prop.GetIndexParameters();
+                        if (1 == ipa.Length && typeof(int) == ipa[0].ParameterType)
+                        {
+                            return prop.PropertyType;
+                        }
+                    }
+                }
+            }
+        }
+
+        return listItemType;
     }
 
     private static double ConvertDateTimeToTimestamp(DateTime time)
