@@ -9,11 +9,16 @@ public class GiftDataFormatterDefine
 {
     public const string kObjectMemberSeperator = ";;";
     public const string kMemberAliasSeperator = "::";
+
+    public const string kSubItemTypeSeperator = "##";
+    public const string kCollectionItemSeperator = ",,";
+
     public const string kArrayOrListStart = "[";
-    public const string kArrayOrListItemSeperator = ",,";
-    public const string kArrayOrListItemTypeSeperator = "##";
     public const string kArrayOrListEnd = "]";
 
+    public const string kDictionaryStart = "{";
+    public const string kDictionaryKVSeperator = "::";
+    public const string kDictionaryEnd = "}";
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = true, AllowMultiple = false)]
@@ -65,18 +70,21 @@ public class GiftDataFormatter
         public static SupportTypeItem Double = new SupportTypeItem(typeof(double), 3);
         public static SupportTypeItem String = new SupportTypeItem(typeof(string), 4);
         public static SupportTypeItem Long = new SupportTypeItem(typeof(long), 5);
-        public static SupportTypeItem DateTime = new SupportTypeItem(typeof(DateTime), 6);
-        public static SupportTypeItem ArrayList = new SupportTypeItem(typeof(ArrayList), 7);
-        public static SupportTypeItem Array = new SupportTypeItem(typeof(Array), 8);
-        public static SupportTypeItem IList = new SupportTypeItem(typeof(IList), 9);
-        public static SupportTypeItem IGenericList = new SupportTypeItem(typeof(List<>), 10);
+        public static SupportTypeItem DateTime = new SupportTypeItem(typeof(DateTime), 20);
+        public static SupportTypeItem ArrayList = new SupportTypeItem(typeof(ArrayList), 21);
+        public static SupportTypeItem Array = new SupportTypeItem(typeof(Array), 22);
+        public static SupportTypeItem IGenericList = new SupportTypeItem(typeof(List<>), 23);
+        public static SupportTypeItem IGenericDictionary = new SupportTypeItem(typeof(Dictionary<,>), 24);
+
+        public static Type IListType = typeof(IList);
+        public static Type IDictionaryType = typeof(IDictionary);
 
         private static List<SupportTypeItem> m_SupportTypes;
         static SupportTypes()
         {
             m_SupportTypes = new List<SupportTypeItem>()
             {
-                Int, Bool, Float, Double, String, Long, DateTime, ArrayList, Array, IList,IGenericList
+                Int, Bool, Float, Double, String, Long, DateTime, ArrayList, Array, IGenericList, IGenericDictionary
             };
         }
 
@@ -118,7 +126,6 @@ public class GiftDataFormatter
     private static NumberFormatInfo number_format = NumberFormatInfo.InvariantInfo;
     private static StringBuilder m_SerializeBuilder = new StringBuilder();
     private static StringBuilder m_DeserializeBuilder = new StringBuilder();
-    private static StringBuilder m_ParseObjectValueBuilder = new StringBuilder();
     private static string m_MemberSeperator;
     private static Dictionary<Type, GiftDataFormatterModelAttribute> m_FormatterSeperatorAttributeMap = new Dictionary<Type, GiftDataFormatterModelAttribute>();
     private static Dictionary<Type, List<GiftDataFormatterMemberAttribute>> m_FormatterAliasAttributesMap = new Dictionary<Type, List<GiftDataFormatterMemberAttribute>>();
@@ -244,8 +251,7 @@ public class GiftDataFormatter
             double timestamp = ConvertDateTimeToTimestamp((DateTime)originValue);
             writer.Append(Convert.ToString(timestamp, number_format));
         }
-        else if (valueType == SupportTypes.ArrayList.type
-                || SupportTypes.IList.type.IsAssignableFrom(valueType))
+        else if (SupportTypes.IListType.IsAssignableFrom(valueType))
         {
             // https://docs.microsoft.com/en-us/dotnet/api/system.type.isassignablefrom
             writer.Append(GiftDataFormatterDefine.kArrayOrListStart);
@@ -255,28 +261,71 @@ public class GiftDataFormatter
             {
                 if (!isFirstItem)
                 {
-                    writer.Append(GiftDataFormatterDefine.kArrayOrListItemSeperator);
+                    writer.Append(GiftDataFormatterDefine.kCollectionItemSeperator);
                 }
+
                 WriteObjectValue(item.GetType(), item, writer);
-                writer.Append(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
-                Type writeItemType = item.GetType();
-                if (writeItemType == SupportTypes.ArrayList.type)
-                {
-                    writeItemType = SupportTypes.ArrayList.type;
-                }
-                else if (writeItemType.IsArray)
-                {
-                    writeItemType = SupportTypes.Array.type;
-                }
-                else if (SupportTypes.IList.type.IsAssignableFrom(writeItemType))
-                {
-                    writeItemType = SupportTypes.IGenericList.type;
-                }
+                writer.Append(GiftDataFormatterDefine.kSubItemTypeSeperator);
+                Type writeItemType = GetSupportItemType(item.GetType());
                 WriteObjectValue(SupportTypes.Int.type, SupportTypes.ConvertTypeToIntValue(writeItemType), writer);
+
                 isFirstItem = false;
             }
             writer.Append(GiftDataFormatterDefine.kArrayOrListEnd);
         }
+        else if (SupportTypes.IDictionaryType.IsAssignableFrom(valueType))
+        {
+            writer.Append(GiftDataFormatterDefine.kDictionaryStart);
+            bool isFirstItem = true;
+            var dic = (IDictionary)originValue;
+            foreach (var key in dic.Keys)
+            {
+                if (!isFirstItem)
+                {
+                    writer.Append(GiftDataFormatterDefine.kCollectionItemSeperator);
+                }
+
+                // key
+                WriteObjectValue(key.GetType(), key, writer);
+                writer.Append(GiftDataFormatterDefine.kSubItemTypeSeperator);
+                Type dicKeyType = GetSupportItemType(key.GetType());
+                WriteObjectValue(SupportTypes.Int.type, SupportTypes.ConvertTypeToIntValue(dicKeyType), writer);
+
+                writer.Append(GiftDataFormatterDefine.kDictionaryKVSeperator);
+
+                //value
+                var value = dic[key];
+                WriteObjectValue(value.GetType(), value, writer);
+                writer.Append(GiftDataFormatterDefine.kSubItemTypeSeperator);
+                Type dicValueType = GetSupportItemType(value.GetType());
+                WriteObjectValue(SupportTypes.Int.type, SupportTypes.ConvertTypeToIntValue(dicValueType), writer);
+
+                isFirstItem = false;
+
+            }
+            writer.Append(GiftDataFormatterDefine.kDictionaryEnd);
+        }
+    }
+
+    private static Type GetSupportItemType(Type originType)
+    {
+        if (originType == SupportTypes.ArrayList.type)
+        {
+            originType = SupportTypes.ArrayList.type;
+        }
+        else if (originType.IsArray)
+        {
+            originType = SupportTypes.Array.type;
+        }
+        else if (SupportTypes.IListType.IsAssignableFrom(originType))
+        {
+            originType = SupportTypes.IGenericList.type;
+        }
+        else if (SupportTypes.IDictionaryType.IsAssignableFrom(originType))
+        {
+            originType = SupportTypes.IGenericDictionary.type;
+        }
+        return originType;
     }
 
     private static object ReadObjectValue(Type valueType, string valueString)
@@ -311,15 +360,15 @@ public class GiftDataFormatter
             double timestamp = Convert.ToDouble(valueString, number_format);
             valueObject = ConvertTimestampToDateTime(timestamp);
         }
-        else if (SupportTypes.IList.type.IsAssignableFrom(valueType))
+        else if (SupportTypes.IListType.IsAssignableFrom(valueType))
         {
             valueString = valueString.Substring(1, valueString.Length - 2);
             List<string> listValueString = new List<string>();
-            SplitArrayOrListString(valueString, ref listValueString);
+            SplitOrganizedString(valueString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listValueString);
             IList list = null;
             if (valueType.IsArray || valueType == SupportTypes.Array.type)
             {
-                var splits = listValueString[0].Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
+                var splits = listValueString[0].Split(GiftDataFormatterDefine.kSubItemTypeSeperator);
                 var arrayItemTypeString = splits[splits.Length - 1];
                 var arrayItemType = SupportTypes.ConvertIntValueToType(Convert.ToInt32(arrayItemTypeString));
                 list = Array.CreateInstance(arrayItemType, listValueString.Count);
@@ -331,12 +380,9 @@ public class GiftDataFormatter
 
             for (int index = 0; index < listValueString.Count; index++)
             {
-                var listItemString = listValueString[index];
-                var listItemStringArray = listItemString.Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
-                var listItemTypeIntString = listItemStringArray[listItemStringArray.Length - 1];
-                var listItemTypeInt = Convert.ToInt32(listItemTypeIntString);
-                var listItemValueString = listItemString.Substring(0, listItemString.Length - listItemTypeIntString.Length - GiftDataFormatterDefine.kArrayOrListItemTypeSeperator.Length);
-                var listItemType = FindArrayOrListItemType(valueType, listItemTypeInt, listItemValueString);
+                var result = SplitMemberItemString(listValueString[index]);
+                var listItemValueString = result.Item1;
+                var listItemType = FindArrayOrListItemType(valueType, listValueString[index]);
                 if (valueType.IsArray || valueType == SupportTypes.Array.type)
                 {
                     list[index] = ReadObjectValue(listItemType, listItemValueString);
@@ -348,91 +394,192 @@ public class GiftDataFormatter
             }
             valueObject = list;
         }
+        else if (SupportTypes.IDictionaryType.IsAssignableFrom(valueType))
+        {
+            var dicString = valueString.Substring(1, valueString.Length - 2);
+            List<string> dicItemStringList = new List<string>();
+            SplitOrganizedString(dicString, GiftDataFormatterDefine.kCollectionItemSeperator, ref dicItemStringList);
+            IDictionary dic = (IDictionary)Activator.CreateInstance(valueType);
+            foreach (var kvString in dicItemStringList)
+            {
+                List<string> kvStringList = new List<string>();
+                SplitOrganizedString(kvString, GiftDataFormatterDefine.kDictionaryKVSeperator, ref kvStringList);
+                Type dicKeyType = FindDictionaryItemType(valueType, kvStringList[0], true);
+                Type dicValueType = FindDictionaryItemType(valueType, kvStringList[1], false);
+                dic[ReadObjectValue(dicKeyType, SplitMemberItemString(kvStringList[0]).Item1)] = ReadObjectValue(dicValueType, SplitMemberItemString(kvStringList[1]).Item1);
+            }
+            valueObject = dic;
+        }
         return valueObject;
     }
 
-    private static void SplitArrayOrListString(string s, ref List<string> result)
+    private static void SplitOrganizedString(string s, string Seperator, ref List<string> result)
     {
         int arrayOrListDepth = 0;
+        int dictionaryDepth = 0;
         int startIndex = 0;
 
-        if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
+        while (!s.Substring(startIndex).StartsWith(Seperator))
         {
-            arrayOrListDepth++;
-            startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
-        }
+            //current 's' is just origin 's' last part.
+            if (startIndex >= s.Length)
+            {
+                startIndex = s.Length;
+                break;
+            }
 
-        while (arrayOrListDepth > 0)
-        {
             if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
             {
                 arrayOrListDepth++;
                 startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
             }
-            else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListEnd))
+            else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kDictionaryStart))
             {
-                arrayOrListDepth--;
-                startIndex += GiftDataFormatterDefine.kArrayOrListEnd.Length;
+                dictionaryDepth++;
+                startIndex += GiftDataFormatterDefine.kDictionaryStart.Length;
             }
             else
             {
                 startIndex++;
             }
-        }
 
-        while (!s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListItemSeperator))
-        {
-            //current 's' is just origin 's' last part.
-            if (startIndex >= s.Length)
+            while (arrayOrListDepth > 0 || dictionaryDepth > 0)
             {
-                break;
+                if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
+                {
+                    arrayOrListDepth++;
+                    startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListEnd))
+                {
+                    arrayOrListDepth--;
+                    startIndex += GiftDataFormatterDefine.kArrayOrListEnd.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kDictionaryStart))
+                {
+                    dictionaryDepth++;
+                    startIndex += GiftDataFormatterDefine.kDictionaryStart.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kDictionaryEnd))
+                {
+                    dictionaryDepth--;
+                    startIndex += GiftDataFormatterDefine.kDictionaryEnd.Length;
+                }
+                else
+                {
+                    startIndex++;
+                }
             }
-            startIndex++;
         }
 
         if (startIndex > 0)
         {
             var splitPart = s.Substring(0, startIndex);
-            var newStringStartIndex = Math.Min(startIndex + GiftDataFormatterDefine.kArrayOrListItemSeperator.Length, s.Length);
+            var newStringStartIndex = Math.Min(startIndex + Seperator.Length, s.Length);
             s = s.Substring(newStringStartIndex);
             result.Add(splitPart);
         }
 
         if (!string.IsNullOrEmpty(s))
         {
-            SplitArrayOrListString(s, ref result);
+            SplitOrganizedString(s, Seperator, ref result);
         }
+
     }
 
-    private static Type FindArrayOrListItemType(Type listType, int listItemTypeInt, string listItemValueString)
+    private static (string, int) SplitMemberItemString(string originMemberString)
     {
+        List<string> valueAndTypeStringArray = new List<string>();
+        SplitOrganizedString(originMemberString, GiftDataFormatterDefine.kSubItemTypeSeperator, ref valueAndTypeStringArray);
+        var typeIntString = valueAndTypeStringArray[1];
+        var typeInt = Convert.ToInt32(typeIntString);
+        var valueString = valueAndTypeStringArray[0];
+        return (valueString, typeInt);
+    }
+
+    private static Type FindDictionaryType(Type dictionaryType, string kvString)
+    {
+        List<string> kvStringArray = new List<string>();
+        SplitOrganizedString(kvString, GiftDataFormatterDefine.kDictionaryKVSeperator, ref kvStringArray);
+        Type keyType = FindDictionaryItemType(dictionaryType, kvStringArray[0], true);
+        Type valueType = FindDictionaryItemType(dictionaryType, kvStringArray[1], false);
+        return SupportTypes.IGenericDictionary.type.MakeGenericType(keyType, valueType);
+    }
+
+    private static Type FindDictionaryItemType(Type dictionaryType, string itemString, bool isKey)
+    {
+        var valueAndType = SplitMemberItemString(itemString);
+        var value = valueAndType.Item1;
+        var type = SupportTypes.ConvertIntValueToType(valueAndType.Item2);
+        if (dictionaryType == SupportTypes.IGenericDictionary.type)
+        {
+            if (SupportTypes.IListType.IsAssignableFrom(type))
+            {
+                var subListString = value.Substring(1, value.Length - 2);
+                List<string> listValueString = new List<string>();
+                SplitOrganizedString(subListString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listValueString);
+                var listItemType = FindArrayOrListItemType(type, listValueString[0]);
+                if (type == SupportTypes.Array.type)
+                {
+                    type = SupportTypes.Array.type;
+                }
+                else if (listItemType == SupportTypes.ArrayList.type)
+                {
+                    type = SupportTypes.ArrayList.type;
+                }
+                else
+                {
+                    type = type.MakeGenericType(listItemType);
+                }
+            }
+            else if (SupportTypes.IDictionaryType.IsAssignableFrom(type))
+            {
+                var subDicString = value.Substring(1, value.Length - 2);
+                type = FindDictionaryType(SupportTypes.IGenericDictionary.type, subDicString);
+            }
+        }
+        else
+        {
+            // has real type
+            var arguments = dictionaryType.GetGenericArguments();
+            type = isKey ? arguments[0] : arguments[1];
+        }
+
+        return type;
+    }
+
+    private static Type FindArrayOrListItemType(Type arrayOrListType, string originItemString)
+    {
+        var itemValueType = SplitMemberItemString(originItemString);
+        int listItemTypeInt = itemValueType.Item2;
+        string listItemValueString = itemValueType.Item1;
         Type listItemType = SupportTypes.ConvertIntValueToType(listItemTypeInt);
 
-        if (listType == SupportTypes.ArrayList.type 
-            || listType == SupportTypes.IGenericList.type 
-            || listType == SupportTypes.Array.type)
+        if (arrayOrListType == SupportTypes.ArrayList.type
+            || arrayOrListType == SupportTypes.IGenericList.type
+            || arrayOrListType == SupportTypes.Array.type)
         {
             if (listItemType == SupportTypes.IGenericList.type)
             {
                 List<string> listItemListValueString = new List<string>();
                 listItemValueString = listItemValueString.Substring(1, listItemValueString.Length - 2);
-                SplitArrayOrListString(listItemValueString, ref listItemListValueString);
+                SplitOrganizedString(listItemValueString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listItemListValueString);
                 var firstListItem = listItemListValueString[0];
-                var splits = firstListItem.Split(GiftDataFormatterDefine.kArrayOrListItemTypeSeperator);
-                var typeString = splits[splits.Length - 1];
-                int typeInt = Convert.ToInt32(typeString);
-                var valueString = firstListItem.Substring(0, firstListItem.Length - typeString.Length - GiftDataFormatterDefine.kArrayOrListItemTypeSeperator.Length);
-                Type listItemListItemType = FindArrayOrListItemType(listItemType, typeInt, valueString);
+                Type listItemListItemType = FindArrayOrListItemType(listItemType, firstListItem);
                 listItemType = listItemType.MakeGenericType(listItemListItemType);
+            }
+            else if (listItemType == SupportTypes.IGenericDictionary.type)
+            {
+                listItemType = FindDictionaryType(SupportTypes.IGenericDictionary.type, listItemValueString.Substring(1, listItemValueString.Length - 2));
             }
         }
         else
         {
             // https://www.codeproject.com/Tips/5267157/How-to-Get-a-Collection-Element-Type-Using-Reflect
-            if (listItemType == SupportTypes.IGenericList.type)
+            if (listItemType == SupportTypes.IGenericList.type || listItemType == SupportTypes.IGenericDictionary.type)
             {
                 var etype = typeof(IEnumerable<>);
-                foreach (var bt in listType.GetInterfaces())
+                foreach (var bt in arrayOrListType.GetInterfaces())
                 {
                     if (bt.IsGenericType && bt.GetGenericTypeDefinition() == etype)
                     {
@@ -444,7 +591,7 @@ public class GiftDataFormatter
 
             if (listItemType == SupportTypes.Array.type)
             {
-                foreach (var prop in listType.GetProperties())
+                foreach (var prop in arrayOrListType.GetProperties())
                 {
                     if ("Item" == prop.Name && typeof(object) != prop.PropertyType)
                     {
@@ -456,6 +603,7 @@ public class GiftDataFormatter
                     }
                 }
             }
+
         }
 
         return listItemType;
