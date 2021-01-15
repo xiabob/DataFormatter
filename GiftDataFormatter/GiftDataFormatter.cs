@@ -22,6 +22,9 @@ public class GiftDataFormatterDefine
     public const string kDictionaryStart = "{";
     public const string kDictionaryKVSeperator = "::";
     public const string kDictionaryEnd = "}";
+
+    public const string kObjectStart = "<";
+    public const string kObjectEnd = ">";
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = true, AllowMultiple = false)]
@@ -78,7 +81,9 @@ public class GiftDataFormatter
         public static SupportTypeItem Array = new SupportTypeItem(typeof(Array), 22);
         public static SupportTypeItem IGenericList = new SupportTypeItem(typeof(List<>), 23);
         public static SupportTypeItem IGenericDictionary = new SupportTypeItem(typeof(Dictionary<,>), 24);
-
+        
+        public static SupportTypeItem Object = new SupportTypeItem(typeof(object), -1);
+        
         public static Type IListType = typeof(IList);
         public static Type IDictionaryType = typeof(IDictionary);
 
@@ -127,9 +132,6 @@ public class GiftDataFormatter
     }
 
     private static NumberFormatInfo number_format = NumberFormatInfo.InvariantInfo;
-    private static StringBuilder m_SerializeBuilder = new StringBuilder();
-    private static StringBuilder m_DeserializeBuilder = new StringBuilder();
-    private static string m_MemberSeperator;
     private static Dictionary<Type, GiftDataFormatterModelAttribute> m_FormatterSeperatorAttributeMap = new Dictionary<Type, GiftDataFormatterModelAttribute>();
     private static Dictionary<Type, List<GiftDataFormatterMemberAttribute>> m_FormatterAliasAttributesMap = new Dictionary<Type, List<GiftDataFormatterMemberAttribute>>();
 
@@ -144,22 +146,24 @@ public class GiftDataFormatter
             return string.Empty;
         }
 
-        m_MemberSeperator = FindDataMemberSeperator(o.GetType());
-        m_SerializeBuilder.Clear();
+        var memberSeperator = FindDataMemberSeperator(o.GetType());
+        var serializeBuilder = new StringBuilder();
         bool isFirstItem = true;
         foreach (var memberAttr in memberAttrs)
         {
+            if (memberAttr.MemberValue == null) continue;
+
             if (!isFirstItem)
             {
-                m_SerializeBuilder.Append(m_MemberSeperator);
+                serializeBuilder.Append(memberSeperator);
             }
-            m_SerializeBuilder.Append(memberAttr.MemberAlias);
-            m_SerializeBuilder.Append(GiftDataFormatterDefine.kMemberAliasSeperator);
-            WriteObjectValue(memberAttr.MemberType, memberAttr.MemberValue, m_SerializeBuilder);
+            serializeBuilder.Append(memberAttr.MemberAlias);
+            serializeBuilder.Append(GiftDataFormatterDefine.kMemberAliasSeperator);
+            WriteObjectValue(memberAttr.MemberType, memberAttr.MemberValue, serializeBuilder);
             isFirstItem = false;
         }
 
-        return m_SerializeBuilder.ToString();
+        return serializeBuilder.ToString();
     }
 
     public static T Deserialize<T>(string serializedObject) where T : new()
@@ -171,22 +175,25 @@ public class GiftDataFormatter
             return default(T);
         }
 
-        m_MemberSeperator = FindDataMemberSeperator(typeof(T));
+        var memberSeperator = FindDataMemberSeperator(typeof(T));
+        StringBuilder deserializeBuilder = new StringBuilder();
         T tObject = new T();
         Type tType = tObject.GetType();
         List<string> formatterMemberArray = new List<string>();
-        SplitOrganizedString(serializedObject, m_MemberSeperator, ref formatterMemberArray);
+        SplitOrganizedString(serializedObject, memberSeperator, ref formatterMemberArray);
         foreach (var formatterMember in formatterMemberArray)
         {
             foreach (var memberAttr in memberAttrs)
             {
-                m_DeserializeBuilder.Clear();
-                m_DeserializeBuilder.Append(memberAttr.MemberAlias);
-                m_DeserializeBuilder.Append(GiftDataFormatterDefine.kMemberAliasSeperator);
-                string prefix = m_DeserializeBuilder.ToString();
+                deserializeBuilder.Clear();
+                deserializeBuilder.Append(memberAttr.MemberAlias);
+                deserializeBuilder.Append(GiftDataFormatterDefine.kMemberAliasSeperator);
+                string prefix = deserializeBuilder.ToString();
                 if (formatterMember.StartsWith(prefix))
                 {
                     string valueString = formatterMember.Replace(prefix, string.Empty);
+                    if (string.IsNullOrEmpty(valueString)) continue;
+
                     var valueType = memberAttr.MemberType;
 
                     var field = tType.GetField(memberAttr.MemberName);
@@ -226,6 +233,8 @@ public class GiftDataFormatter
 
     private static void WriteObjectValue(Type valueType, object originValue, StringBuilder writer)
     {
+        if (originValue == null) return;
+
         if (valueType.IsEnum || valueType == SupportTypes.Int.type)
         {
             writer.Append((int)originValue);
@@ -265,6 +274,8 @@ public class GiftDataFormatter
             bool isFirstItem = true;
             foreach (var item in collection)
             {
+                if (item == null) return;
+
                 if (!isFirstItem)
                 {
                     writer.Append(GiftDataFormatterDefine.kCollectionItemSeperator);
@@ -286,6 +297,8 @@ public class GiftDataFormatter
             var dic = (IDictionary)originValue;
             foreach (var key in dic.Keys)
             {
+                if (key == null || dic[key] == null) return;
+
                 if (!isFirstItem)
                 {
                     writer.Append(GiftDataFormatterDefine.kCollectionItemSeperator);
@@ -310,6 +323,13 @@ public class GiftDataFormatter
 
             }
             writer.Append(GiftDataFormatterDefine.kDictionaryEnd);
+        }
+        else
+        {
+            // Here is Object
+            writer.Append(GiftDataFormatterDefine.kObjectStart);
+            writer.Append(GiftDataFormatter.Serialize(originValue));
+            writer.Append(GiftDataFormatterDefine.kObjectEnd);
         }
     }
 
@@ -417,6 +437,14 @@ public class GiftDataFormatter
             }
             valueObject = dic;
         }
+        else
+        {
+            // here is read 'Object'
+            var objectFullString = valueString.Substring(GiftDataFormatterDefine.kObjectStart.Length, valueString.Length - GiftDataFormatterDefine.kObjectStart.Length - GiftDataFormatterDefine.kObjectEnd.Length);
+            var method = typeof(GiftDataFormatter).GetMethod("Deserialize");
+            method = method.MakeGenericMethod(valueType);
+            valueObject = method.Invoke(null, new object[] { objectFullString });
+        }
         return valueObject;
     }
 
@@ -425,6 +453,7 @@ public class GiftDataFormatter
         int arrayOrListDepth = 0;
         int dictionaryDepth = 0;
         int stringDepth = 0;
+        int objectDepth = 0;
         int startIndex = 0;
 
         while (!s.Substring(startIndex).StartsWith(Seperator))
@@ -446,6 +475,11 @@ public class GiftDataFormatter
                 dictionaryDepth++;
                 startIndex += GiftDataFormatterDefine.kDictionaryStart.Length;
             }
+            else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kObjectStart))
+            {
+                objectDepth++;
+                startIndex += GiftDataFormatterDefine.kObjectStart.Length;
+            }
             else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kStringStart))
             {
                 stringDepth++;
@@ -456,7 +490,7 @@ public class GiftDataFormatter
                 startIndex++;
             }
 
-            while (arrayOrListDepth > 0 || dictionaryDepth > 0 || stringDepth > 0)
+            while (arrayOrListDepth > 0 || dictionaryDepth > 0 || stringDepth > 0 || objectDepth > 0)
             {
                 bool isOutOfString = stringDepth == 0;
                 if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
@@ -478,6 +512,16 @@ public class GiftDataFormatter
                 {
                     if (isOutOfString) dictionaryDepth--;
                     startIndex += GiftDataFormatterDefine.kDictionaryEnd.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kObjectStart))
+                {
+                    if (isOutOfString) objectDepth++;
+                    startIndex += GiftDataFormatterDefine.kObjectStart.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kObjectEnd))
+                {
+                    if (isOutOfString) objectDepth--;
+                    startIndex += GiftDataFormatterDefine.kObjectEnd.Length;
                 }
                 else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kStringStart))
                 {
@@ -595,13 +639,18 @@ public class GiftDataFormatter
             }
             else if (listItemType == SupportTypes.IGenericDictionary.type)
             {
-                listItemType = FindDictionaryType(SupportTypes.IGenericDictionary.type, listItemValueString.Substring(GiftDataFormatterDefine.kDictionaryStart.Length, listItemValueString.Length - GiftDataFormatterDefine.kDictionaryStart.Length - GiftDataFormatterDefine.kDictionaryEnd.Length));
+                var dicString = listItemValueString.Substring(GiftDataFormatterDefine.kDictionaryStart.Length, listItemValueString.Length - GiftDataFormatterDefine.kDictionaryStart.Length - GiftDataFormatterDefine.kDictionaryEnd.Length);
+                List<string> dcKeyValueList = new List<string>();
+                SplitOrganizedString(dicString, GiftDataFormatterDefine.kCollectionItemSeperator, ref dcKeyValueList);
+                listItemType = FindDictionaryType(SupportTypes.IGenericDictionary.type, dcKeyValueList[0]);
             }
         }
         else
         {
             // https://www.codeproject.com/Tips/5267157/How-to-Get-a-Collection-Element-Type-Using-Reflect
-            if (listItemType == SupportTypes.IGenericList.type || listItemType == SupportTypes.IGenericDictionary.type)
+            if (listItemType == SupportTypes.IGenericList.type 
+                || listItemType == SupportTypes.IGenericDictionary.type 
+                || listItemType == SupportTypes.Object.type)
             {
                 var etype = typeof(IEnumerable<>);
                 foreach (var bt in arrayOrListType.GetInterfaces())
