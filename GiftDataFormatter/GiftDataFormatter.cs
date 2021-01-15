@@ -7,11 +7,14 @@ using System.Globalization;
 
 public class GiftDataFormatterDefine
 {
-    public const string kObjectMemberSeperator = ";;";
-    public const string kMemberAliasSeperator = "::";
+    public const string kObjectMemberSeperator = ";";
+    public const string kMemberAliasSeperator = ":";
 
-    public const string kSubItemTypeSeperator = "##";
-    public const string kCollectionItemSeperator = ",,";
+    public const string kStringStart = "“";
+    public const string kStringEnd = "”";
+
+    public const string kSubItemTypeSeperator = "#";
+    public const string kCollectionItemSeperator = ",";
 
     public const string kArrayOrListStart = "[";
     public const string kArrayOrListEnd = "]";
@@ -171,7 +174,8 @@ public class GiftDataFormatter
         m_MemberSeperator = FindDataMemberSeperator(typeof(T));
         T tObject = new T();
         Type tType = tObject.GetType();
-        var formatterMemberArray = serializedObject.Split(m_MemberSeperator, StringSplitOptions.None);
+        List<string> formatterMemberArray = new List<string>();
+        SplitOrganizedString(serializedObject, m_MemberSeperator, ref formatterMemberArray);
         foreach (var formatterMember in formatterMemberArray)
         {
             foreach (var memberAttr in memberAttrs)
@@ -232,15 +236,17 @@ public class GiftDataFormatter
         }
         else if (valueType == SupportTypes.Float.type)
         {
-            writer.Append(Convert.ToString((float)(originValue), number_format));
+            WriteObjectValue(SupportTypes.String.type, Convert.ToString((float)(originValue), number_format), writer);
         }
         else if (valueType == SupportTypes.Double.type)
         {
-            writer.Append(Convert.ToString((double)(originValue), number_format));
+            WriteObjectValue(SupportTypes.String.type, Convert.ToString((double)(originValue), number_format), writer);
         }
         else if (valueType == SupportTypes.String.type)
         {
+            writer.Append(GiftDataFormatterDefine.kStringStart);
             writer.Append((string)originValue);
+            writer.Append(GiftDataFormatterDefine.kStringEnd);
         }
         else if (valueType == SupportTypes.Long.type)
         {
@@ -341,14 +347,17 @@ public class GiftDataFormatter
         }
         else if (valueType == SupportTypes.Float.type)
         {
+            valueString = valueString.Substring(GiftDataFormatterDefine.kStringStart.Length, valueString.Length - GiftDataFormatterDefine.kStringStart.Length - GiftDataFormatterDefine.kStringEnd.Length);
             valueObject = Convert.ToSingle(valueString, number_format);
         }
         else if (valueType == SupportTypes.Double.type)
         {
+            valueString = valueString.Substring(GiftDataFormatterDefine.kStringStart.Length, valueString.Length - GiftDataFormatterDefine.kStringStart.Length - GiftDataFormatterDefine.kStringEnd.Length);
             valueObject = Convert.ToDouble(valueString, number_format);
         }
         else if (valueType == SupportTypes.String.type)
         {
+            valueString = valueString.Substring(GiftDataFormatterDefine.kStringStart.Length, valueString.Length - GiftDataFormatterDefine.kStringStart.Length - GiftDataFormatterDefine.kStringEnd.Length);
             valueObject = valueString;
         }
         else if (valueType == SupportTypes.Long.type)
@@ -368,9 +377,7 @@ public class GiftDataFormatter
             IList list = null;
             if (valueType.IsArray || valueType == SupportTypes.Array.type)
             {
-                var splits = listValueString[0].Split(GiftDataFormatterDefine.kSubItemTypeSeperator);
-                var arrayItemTypeString = splits[splits.Length - 1];
-                var arrayItemType = SupportTypes.ConvertIntValueToType(Convert.ToInt32(arrayItemTypeString));
+                var arrayItemType = FindArrayOrListItemType(valueType, listValueString[0]);
                 list = Array.CreateInstance(arrayItemType, listValueString.Count);
             }
             else
@@ -417,6 +424,7 @@ public class GiftDataFormatter
     {
         int arrayOrListDepth = 0;
         int dictionaryDepth = 0;
+        int stringDepth = 0;
         int startIndex = 0;
 
         while (!s.Substring(startIndex).StartsWith(Seperator))
@@ -438,32 +446,48 @@ public class GiftDataFormatter
                 dictionaryDepth++;
                 startIndex += GiftDataFormatterDefine.kDictionaryStart.Length;
             }
+            else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kStringStart))
+            {
+                stringDepth++;
+                startIndex += GiftDataFormatterDefine.kStringStart.Length;
+            }
             else
             {
                 startIndex++;
             }
 
-            while (arrayOrListDepth > 0 || dictionaryDepth > 0)
+            while (arrayOrListDepth > 0 || dictionaryDepth > 0 || stringDepth > 0)
             {
+                bool isOutOfString = stringDepth == 0;
                 if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListStart))
                 {
-                    arrayOrListDepth++;
+                    if (isOutOfString) arrayOrListDepth++;
                     startIndex += GiftDataFormatterDefine.kArrayOrListStart.Length;
                 }
                 else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kArrayOrListEnd))
                 {
-                    arrayOrListDepth--;
+                    if (isOutOfString) arrayOrListDepth--;
                     startIndex += GiftDataFormatterDefine.kArrayOrListEnd.Length;
                 }
                 else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kDictionaryStart))
                 {
-                    dictionaryDepth++;
+                    if (isOutOfString) dictionaryDepth++;
                     startIndex += GiftDataFormatterDefine.kDictionaryStart.Length;
                 }
                 else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kDictionaryEnd))
                 {
-                    dictionaryDepth--;
+                    if (isOutOfString) dictionaryDepth--;
                     startIndex += GiftDataFormatterDefine.kDictionaryEnd.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kStringStart))
+                {
+                    stringDepth++;
+                    startIndex += GiftDataFormatterDefine.kStringStart.Length;
+                }
+                else if (s.Substring(startIndex).StartsWith(GiftDataFormatterDefine.kStringEnd))
+                {
+                    stringDepth--;
+                    startIndex += GiftDataFormatterDefine.kStringEnd.Length;
                 }
                 else
                 {
@@ -557,7 +581,8 @@ public class GiftDataFormatter
 
         if (arrayOrListType == SupportTypes.ArrayList.type
             || arrayOrListType == SupportTypes.IGenericList.type
-            || arrayOrListType == SupportTypes.Array.type)
+            || arrayOrListType == SupportTypes.Array.type
+            )
         {
             if (listItemType == SupportTypes.IGenericList.type)
             {
