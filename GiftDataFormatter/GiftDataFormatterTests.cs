@@ -69,6 +69,9 @@ public class GiftDataFormatterTests
         [GiftDataFormatterMember("AADictionaryValue2")]
         public Dictionary<string, Dictionary<string, int>> AADictionaryValue2;
 
+        [GiftDataFormatterMember("AADictionaryValue3")]
+        public Dictionary<int, int[]> AADictionaryValue3;
+
         public int aaa;
     }
 
@@ -90,7 +93,7 @@ public class GiftDataFormatterTests
         a.AListArrayValue = new List<Array>() { new string[] { "abc", "hello, world!" }, new int[] { 1, 2, 3 } };
         a.AListIntArrayValue = new List<int[]>() { new int[] { 100, 200 }, new int[] { 300, 400, 600 } };
         a.AListArraysValue = new List<List<Array>>() { new List<Array>() { new int[] { 1, 2, 3 }, new string[] { "a", "b" } }, new List<Array>() { new List<int>[] { new List<int>() { 1, 2, 3 } } } };
-        a.AListArrayListValue = new List<ArrayList>() { new ArrayList() { 123, 456.01f, "abc" }, new ArrayList() { 1, new List<int>() { 23, 45 }, new List<List<int>>() { new List<int>() { 1 }, new List<int>() { 2, 3, 4 } } }, new ArrayList() { new List<List<string[]>>() { new List<string[]>() { new string[] { "hhhhhhhhhhhhhh" } } } } };
+        a.AListArrayListValue = new List<ArrayList>() { new ArrayList() { 123, 456.01f, "abc" }, new ArrayList() { 1, new List<int>() { 23, 45 }, new List<List<int>>() { new List<int>() { 1 }, new List<int>() { 2, 3, 4 } } }, new ArrayList() { new List<List<string[]>>() { new List<string[]>() { new string[] { "hhhhhhhhhhhhhh" } } } }, new ArrayList() { new int[] { 444, 555, 666 }, new string[] { "aaaaa", "b" } }, new ArrayList() { new List<Array>() { new int[] { 1 }, new string[] { "234" } }, new List<Dictionary<Array, Array>>() { new Dictionary<Array, Array>() { { new int[] { 2, 3 }, new string[] { "ac", "bd" } } } } } };
         a.ADictionaryValue = new Dictionary<int, string>()
         {
             {1, "a"},
@@ -100,6 +103,7 @@ public class GiftDataFormatterTests
         };
         a.ADictionaryListValue = new Dictionary<string, List<int>>() { { "test1", new List<int>() { 1234, 244, 1 } }, { "test2", new List<int>() { 5, 9, 100 } } };
         a.AADictionaryValue2 = new Dictionary<string, Dictionary<string, int>>() { { "1800", new Dictionary<string, int>() { { "1", 2 }, { "2", 10 }, { "12", 20 } } }, { "3600", new Dictionary<string, int>() { { "11", 20 }, { "21", 100 } } } };
+        a.AADictionaryValue3 = new Dictionary<int, int[]>() { { 1, new int[] { 1, 2, 3 } }, { 2, new int[] { 11, 12, 13, 14, 15 } } };
 
         var formatterString = GiftDataFormatter.Serialize(a);
         Console.WriteLine("run Serialize a formatter string => " + formatterString);

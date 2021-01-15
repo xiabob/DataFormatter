@@ -371,7 +371,7 @@ public class GiftDataFormatter
         }
         else if (SupportTypes.IListType.IsAssignableFrom(valueType))
         {
-            valueString = valueString.Substring(1, valueString.Length - 2);
+            valueString = valueString.Substring(GiftDataFormatterDefine.kArrayOrListStart.Length, valueString.Length - GiftDataFormatterDefine.kArrayOrListStart.Length - GiftDataFormatterDefine.kArrayOrListEnd.Length);
             List<string> listValueString = new List<string>();
             SplitOrganizedString(valueString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listValueString);
             IList list = null;
@@ -403,7 +403,7 @@ public class GiftDataFormatter
         }
         else if (SupportTypes.IDictionaryType.IsAssignableFrom(valueType))
         {
-            var dicString = valueString.Substring(1, valueString.Length - 2);
+            var dicString = valueString.Substring(GiftDataFormatterDefine.kDictionaryStart.Length, valueString.Length - GiftDataFormatterDefine.kDictionaryStart.Length - GiftDataFormatterDefine.kDictionaryEnd.Length);
             List<string> dicItemStringList = new List<string>();
             SplitOrganizedString(dicString, GiftDataFormatterDefine.kCollectionItemSeperator, ref dicItemStringList);
             IDictionary dic = (IDictionary)Activator.CreateInstance(valueType);
@@ -539,7 +539,7 @@ public class GiftDataFormatter
         {
             if (SupportTypes.IListType.IsAssignableFrom(type))
             {
-                var subListString = value.Substring(1, value.Length - 2);
+                var subListString = value.Substring(GiftDataFormatterDefine.kArrayOrListStart.Length, value.Length - GiftDataFormatterDefine.kArrayOrListStart.Length - GiftDataFormatterDefine.kArrayOrListEnd.Length);
                 List<string> listValueString = new List<string>();
                 SplitOrganizedString(subListString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listValueString);
                 var listItemType = FindArrayOrListItemType(type, listValueString[0]);
@@ -558,7 +558,7 @@ public class GiftDataFormatter
             }
             else if (SupportTypes.IDictionaryType.IsAssignableFrom(type))
             {
-                var subDicString = value.Substring(1, value.Length - 2);
+                var subDicString = value.Substring(GiftDataFormatterDefine.kDictionaryStart.Length, value.Length - GiftDataFormatterDefine.kDictionaryStart.Length - GiftDataFormatterDefine.kDictionaryEnd.Length);
                 type = FindDictionaryType(SupportTypes.IGenericDictionary.type, subDicString);
             }
         }
@@ -587,7 +587,7 @@ public class GiftDataFormatter
             if (listItemType == SupportTypes.IGenericList.type)
             {
                 List<string> listItemListValueString = new List<string>();
-                listItemValueString = listItemValueString.Substring(1, listItemValueString.Length - 2);
+                listItemValueString = listItemValueString.Substring(GiftDataFormatterDefine.kArrayOrListStart.Length, listItemValueString.Length - GiftDataFormatterDefine.kArrayOrListStart.Length - GiftDataFormatterDefine.kArrayOrListEnd.Length);
                 SplitOrganizedString(listItemValueString, GiftDataFormatterDefine.kCollectionItemSeperator, ref listItemListValueString);
                 var firstListItem = listItemListValueString[0];
                 Type listItemListItemType = FindArrayOrListItemType(listItemType, firstListItem);
@@ -595,7 +595,7 @@ public class GiftDataFormatter
             }
             else if (listItemType == SupportTypes.IGenericDictionary.type)
             {
-                listItemType = FindDictionaryType(SupportTypes.IGenericDictionary.type, listItemValueString.Substring(1, listItemValueString.Length - 2));
+                listItemType = FindDictionaryType(SupportTypes.IGenericDictionary.type, listItemValueString.Substring(GiftDataFormatterDefine.kDictionaryStart.Length, listItemValueString.Length - GiftDataFormatterDefine.kDictionaryStart.Length - GiftDataFormatterDefine.kDictionaryEnd.Length));
             }
         }
         else
